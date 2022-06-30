@@ -4,11 +4,14 @@ from mpl_toolkits import mplot3d
 plt.style.use('ggplot')
 
 
+# DEFAULT BASE CONSO 
+
 x = np.linspace(0., np.pi, 24)
 min_conso = 15
 base_conso = np.sin(x * 3) + 1 + min_conso
 
-militia_conso = 1.4 
+# SURCONSO FACTOR FOR POP
+militia_conso = 1.8 
 
 
 
@@ -19,6 +22,8 @@ def make_conso(pop_w,pop_m):
     conso_worker = (base_conso.reshape(1,-1) - min_conso) * pop_w.reshape(-1,1)
 
     total_conso =conso_militia + conso_worker 
+
+    # 2D plots 
     f, axes = plt.subplots(2,1)
     axes = axes.flatten()
 
@@ -30,6 +35,9 @@ def make_conso(pop_w,pop_m):
     axes[1].plot(pop_m, label = 'militia')
     axes[1].plot(pop_m + pop_w, label = 'Total')
     axes[1].legend()
+
+    # 3D plots 
+
     # fig = plt.figure()
     # ax = plt.axes(projection='3d')
 
