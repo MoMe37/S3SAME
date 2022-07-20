@@ -145,6 +145,12 @@ def zombies_0(beta, m1):
     # plt.show()
 
 
+def simulate_pop_dynamics(config, size): 
+
+    pops = np.random.uniform(0.,1., size = (size, 3))
+    pops = np.exp(pops) / np.sum(np.exp(pops), axis = 1).reshape(-1,1)
+    return pops
+
 if __name__ == "__main__":
 
     survived = []
