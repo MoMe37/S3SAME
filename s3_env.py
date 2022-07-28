@@ -68,14 +68,21 @@ class S3Env(gym.Env):
             self.current_load = np.clip(self.current_load - withdrawn_energy, 0., self.max_storage)
 
 
+        reward = self.compute_reward(next_conso, to_grid)
         
-        reward = np.exp(-np.abs(next_conso - to_grid))
 
         self.ts += 1
         done = True if self.ts >= self.max_ts else False
         
 
         return self.get_obs(), reward, done, {"conso" : next_conso, "prod" : next_prod, "diff" :next_conso - to_grid,  "grid": to_grid, "load": self.current_load, "load_normalized": self.current_load / self.max_storage, "withdrawn_energy": to_grid - next_prod}
+
+    def compute_reward(self, next_conso, to_grid): 
+
+        # GOAL IS TO SEND AN ENERGY VOLUME AS CLOSE AS POSSIBLE TO THE NEXT DEMAND  
+        d = np.abs(next_conso - to_grid)
+        return np.exp(-d)
+
 
     def get_obs(self): 
 
@@ -87,6 +94,13 @@ class S3Env(gym.Env):
     def random_action(self): 
         return np.random.uniform(-1.,1., size = (self.action_space.shape[0]))
 
+
+class S3R2(S3Env):
+
+    def compute_reward(self, next_conso, to_grid): 
+        d = to_grid - next_conso
+        r = 1. if d > 0 else d
+        return r 
 
 class DummyModel: 
     def __init__(self, action_space): 
@@ -189,14 +203,66 @@ def make_ref_sequence(model, env):
 
     df.to_csv('./ref_load.csv', index =False)
 
+
+def train_agents(): 
+
+    for env in [S3Env, S3R2]: 
+        venv = SubprocVecEnv([env for i in range(2)])
+        model = PPO('MlpPolicy', VecMonitor(venv), verbose = 1, device = 'cpu')
+        model.learn(total_timesteps = 1000000)
+        model.save('ppo_s3_{}'.format(env.__name__))
+
+def test_agents(): 
+
+
+    for env in [S3R2, S3Env]: 
+        agent = PPO.load('ppo_s3_{}'.format(env.__name__))
+        show_eps(env(), agent)
+        # show_ep(env(), agent)
+
+def show_eps(env, agent, nb_eps = 100): 
+
+    deltas = None
+    for ep in range(nb_eps): 
+        s = env.reset()
+        done = False
+        ep_deltas = []
+        while not done: 
+            action = agent.predict(s)
+            s, r, done, info = env.step(action)
+            ep_deltas.append(float(info['grid'] / info['conso'] - 1.))
+        if deltas is not None: 
+            deltas = np.hstack([deltas, np.array(ep_deltas).reshape(-1,1)])
+        else: 
+            deltas = np.array(ep_deltas).reshape(-1,1)
+    
+    f, axes = plt.subplots(2,1)
+    axes = axes.flatten()
+    results = np.sum(np.where(deltas < -0.2, 1.,0.), 0)
+    axes[0].bar(np.arange(nb_eps), results/deltas.shape[0])
+    axes[1].fill_between(np.arange(nb_eps), deltas.mean(0) - deltas.std(0), deltas.mean(0) + deltas.std(0), alpha = 0.3)
+    for i in range(deltas.shape[1]):
+        axes[1].scatter(np.arange(deltas.shape[0])*0 + i, deltas[:,i], color= ['k' if deltas[j,i] > 0 else 'r' for j in range(deltas.shape[0])], alpha = 0.5)
+    axes[1].hlines(-0.2, 0, deltas.shape[1]-1, label ='Acceptance Threshold: 80%')
+    axes[1].set_xlabel('Episode')
+    axes[1].set_ylabel('Energy Ratio: Delivered / Needed')
+    axes[1].set_title('Hourly ratio of delivered energy vs needed')
+    axes[1].legend()
+
+    axes[0].set_xlabel('Episode')
+    axes[0].set_ylabel('Normalized number of system failure occurences (ep = 240 steps)')
+    axes[0].set_ylim(0.,1.)
+    axes[0].set_title('Failed hours (relative to threshold)')
+    axes[0].legend()
+    plt.show()
+
+
+
+
 if __name__ == "__main__": 
 
-    # env = S3Env()
-    # venv = SubprocVecEnv([S3Env for i in range(2)])
-    # model = PPO('MlpPolicy', VecMonitor(venv), verbose = 1, device = 'cpu')
-    # model.learn(total_timesteps = 1000000)
-    # model.save('ppo_s3')
-
-    model= PPO.load('./ppo_s3')
-    make_ref_sequence(model, S3Env())
-    show_ep(S3Env(), model)
+    # train_agents()
+    test_agents()
+    # model= PPO.load('./ppo_s3')
+    # make_ref_sequence(model, S3Env())
+    # show_ep(S3Env(), model)
